@@ -1,4 +1,3 @@
-
 import os
 import torch
 import argparse
@@ -26,23 +25,23 @@ import styleGAN.loss as style_loss
 import torch.optim as optim
 import torch.nn.functional as F
 print(f"GPUs used:\t{torch.cuda.device_count()}")
-device = torch.device("cuda", 6)
+device = torch.device("cuda", 3)
 print(f"Device:\t\t{device}")
 # class_list=['유형1','유형2','유형3','유형4','유형5','유형6','유형7','유형8','유형9','유형10','유형11','유형12','유형13','유형14','유형15']
-class_list = ['유형3', '유형4']
+class_list = ['Hemorrhagic','Ischemic']
 params = {'image_size': 512,
           'lr': 1e-5,
           'beta1': 0.5,
           'beta2': 0.999,
-          'batch_size': 1,
+          'batch_size': 16,
           'epochs': 1000,
           'n_classes': None,
-          'data_path': '../../data/normalization_type/BRLC/',
+          'data_path': '../../data/2D_CT/',
           'image_count': 5000,
           'inch': 3,
           'modch': 64,
           'outch': 3,
-          'chmul': [1, 2, 4, 8, 16, 16, 16],
+          'chmul': [1, 2, 4, 8],
           'numres': 2,
           'dtype': torch.float32,
           'cdim': 10,
@@ -59,7 +58,7 @@ params = {'image_size': 512,
 
 trans = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5)),
 ])
 
 
@@ -100,7 +99,7 @@ class CustomDataset(Dataset):
 image_label = []
 image_path = []
 for i in tqdm(range(len(class_list))):
-    image_list = glob(params['data_path']+class_list[i]+'/*.jpeg')
+    image_list = glob(params['data_path']+class_list[i]+'/*.png')
     for j in range(len(image_list)):
         image_path.append(image_list[j])
         image_label.append(i)
@@ -113,14 +112,14 @@ for i in tqdm(range(len(image_path))):
 train_dataset = CustomDataset(
     params, train_images, F.one_hot(torch.tensor(image_label)))
 dataloader = DataLoader(
-    train_dataset, batch_size=params['batch_size'], shuffle=True)
+    train_dataset, batch_size=params['batch_size'], shuffle=True,drop_last=True)
 
 
 generator = stylegan.Generator(
-    z_dim=1024,  # Input latent (Z) dimensionality
+    z_dim=256,  # Input latent (Z) dimensionality
     # Conditioning label (C) dimensionality (0 = no labels)
     c_dim=len(class_list),
-    w_dim=512,  # Intermediate latent (W) dimensionality
+    w_dim=256,  # Intermediate latent (W) dimensionality
     img_resolution=params['image_size'],  # Output resolution
     img_channels=3,       # Number of output color channels (3 for RGB)
 ).to(device)
@@ -132,7 +131,7 @@ discriminator = stylegan.Discriminator(
     img_channels=3,       # Number of input color channels (3 for RGB)
     architecture='resnet',  # Architecture: 'orig', 'skip', 'resnet'
     channel_base=32768,   # Overall multiplier for the number of channels
-    channel_max=512,      # Maximum number of channels in any layer
+    channel_max=256,      # Maximum number of channels in any layer
     num_fp16_res=4,       # Use FP16 for the 4 highest resolutions
     # Clamp the output of convolution layers to +-X, None = disable clamping
     conv_clamp=None,
@@ -182,35 +181,39 @@ def train_discriminator_loss(discriminator, generator, real_images, labels, z, d
 def train_generator_loss(generator, discriminator, z, labels, pl_weight, pl_mean, pl_decay, pl_no_weight_grad):
     # 가짜 이미지에 대한 예측
     fake_images = generator(z, labels)
-    fake_pred = discriminator(fake_images, labels)  # labels 추가
+    fake_pred = discriminator(fake_images, labels)
 
     # 손실 계산
     g_loss_val = torch.nn.functional.softplus(-fake_pred)
 
     # Path length regularization
     if pl_weight > 0:
-        pl_noise = torch.randn_like(
-            fake_images) / np.sqrt(fake_images.shape[2] * fake_images.shape[3])
-        pl_grads = torch.autograd.grad(outputs=(
-            fake_images * pl_noise).sum(), inputs=z, create_graph=True, retain_graph=True)[0]
+        pl_noise = torch.randn_like(fake_images) / np.sqrt(fake_images.shape[2] * fake_images.shape[3])
+        pl_grads = torch.autograd.grad(
+            outputs=(fake_images * pl_noise).sum(), 
+            inputs=z, 
+            create_graph=True, retain_graph=True
+        )[0]
 
-        # pl_grads의 크기를 기반으로 차원을 조정합니다.
-        # (1, 1024) -> sum over dim 1 and then sqrt
-        pl_lengths = pl_grads.square().sum(dim=1).sqrt()
-        pl_mean = pl_mean.lerp(pl_lengths.mean(), pl_decay)
+        # 🔹 Shape 수정: keepdim=True를 추가하여 shape mismatch 방지
+        pl_lengths = pl_grads.square().sum(dim=1, keepdim=False).sqrt()  # shape: [batch_size]
+
+        # 🔹 `pl_mean`을 브로드캐스팅 가능하도록 수정
+        pl_mean = pl_mean.view(1)  # shape: [1]로 변경
+
+        # 🔹 Shape 맞추기
         pl_penalty = (pl_lengths - pl_mean).square()
-        g_loss_val += pl_penalty * pl_weight
+        g_loss_val += (pl_penalty * pl_weight).mean()  # Mean을 사용해 스칼라 값으로 만듦
 
     return g_loss_val.mean()
-# checkpoint=torch.load(f'../../model/styleGan2/BRNT/checkpoint_epoch_147.pt',map_location=device)
-# generator.load_state_dict(checkpoint['generator_state_dict'])
-# discriminator.load_state_dict(checkpoint['discriminator_state_dict'])
-# checkpoint=0
+
 
 
 r1_gamma = 10  # R1 정규화 강도를 더 낮춤
 pl_weight = 1.0  # Path Length 정규화 강도를 크게 낮춤
-
+def create_dir(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
 for epc in range(params['epochs']):
     gloss_total = 0
     dloss_total = 0
@@ -221,7 +224,7 @@ for epc in range(params['epochs']):
         for img, lab in tqdmDataLoader:
             real_images = img.to(device)
             labels = lab.to(device)
-            z = torch.randn(params['batch_size'], 1024,
+            z = torch.randn(params['batch_size'], 256,
                             device=device, requires_grad=True)
 
             # ---------------------
@@ -281,12 +284,13 @@ for epc in range(params['epochs']):
     generator.eval()  # 평가 모드로 전환
     with torch.no_grad():
         for cls_idx, cls_name in enumerate(class_list):
-            z = torch.randn(1, 1024, device=device)
+            z = torch.randn(3, 256, device=device)
             labels = torch.zeros((1, len(class_list)), device=device)
             labels[0, cls_idx] = 1
             generated_images = generator(z, labels)
+            create_dir(f'../../result/styleGan2/CT/{cls_name}')
             save_image(transback(generated_images),
-                       f'../../result/styleGan2/BRLC/{cls_name}/generated_images_epoch_{epc+1}.png', nrow=4)
+                       f'../../result/styleGan2/CT/{cls_name}/generated_images_epoch_{epc+1}.png', nrow=4)
 
     if epc % 10 == 0:
         checkpoint = {
@@ -296,8 +300,9 @@ for epc in range(params['epochs']):
             'd_optimizer_state_dict': d_optimizer.state_dict(),
             'epoch': epc + 1
         }
+        create_dir(f'../../model/styleGan2/CT/')
         torch.save(
-            checkpoint, f'../../model/styleGan2/BRLC/checkpoint_epoch_{epc+1}.pt')
+            checkpoint, f'../../model/styleGan2/CT/checkpoint_epoch_{epc+1}.pt')
 
         # 학습 모드로 다시 전환
         generator.train()
