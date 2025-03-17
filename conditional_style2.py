@@ -30,7 +30,7 @@ print(f"Device:\t\t{device}")
 # class_list=['유형1','유형2','유형3','유형4','유형5','유형6','유형7','유형8','유형9','유형10','유형11','유형12','유형13','유형14','유형15']
 class_list = ['Hemorrhagic','Ischemic']
 params = {'image_size': 512,
-          'lr': 1e-5,
+          'lr': 2e-4,
           'beta1': 0.5,
           'beta2': 0.999,
           'batch_size': 16,
@@ -284,7 +284,7 @@ for epc in range(params['epochs']):
     generator.eval()  # 평가 모드로 전환
     with torch.no_grad():
         for cls_idx, cls_name in enumerate(class_list):
-            z = torch.randn(3, 256, device=device)
+            z = torch.randn(1, 256, device=device)
             labels = torch.zeros((1, len(class_list)), device=device)
             labels[0, cls_idx] = 1
             generated_images = generator(z, labels)
