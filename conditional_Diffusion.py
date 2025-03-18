@@ -21,7 +21,7 @@ from conditionDiffusion.diffusion import GaussianDiffusion
 from conditionDiffusion.Scheduler import GradualWarmupScheduler
 from PIL import Image
 print(f"GPUs used:\t{torch.cuda.device_count()}")
-device = torch.device("cuda",2)
+device = torch.device("cuda",1)
 print(f"Device:\t\t{device}")
 import pytorch_model_summary as tms
 
@@ -41,9 +41,9 @@ params = {'image_size': 512,
           'n_classes': None,
           'data_path': '../../data/2D_CT/',
           'image_count': 5000,
-          'inch': 3,
+          'inch': 1,
           'modch': 64,
-          'outch': 3,
+          'outch': 1,
           'chmul': [1, 2, 4, 8],
           'numres': 2,
           'dtype': torch.float32,
@@ -161,7 +161,7 @@ warmUpScheduler = GradualWarmupScheduler(
 from torchinfo import summary
 
 # 각 입력 데이터 생성
-image_input = torch.randn(1, 3, 256, 256, device=device)  # 첫 번째 입력 (이미지 텐서)
+image_input = torch.randn(1, 1, 256, 256, device=device)  # 첫 번째 입력 (이미지 텐서)
 random_int_input = torch.randint(1000, size=(1,), device=device)  # 두 번째 입력 (정수 텐서)
 cemblayer_input = cemblayer(torch.Tensor([1]).long().to(device))  # 세 번째 입력 (cemblayer 텐서)
 
