@@ -25,10 +25,10 @@ import styleGAN.loss as style_loss
 import torch.optim as optim
 import torch.nn.functional as F
 print(f"GPUs used:\t{torch.cuda.device_count()}")
-device = torch.device("cuda", 3)
+device = torch.device("cuda", 1)
 print(f"Device:\t\t{device}")
 # class_list=['유형1','유형2','유형3','유형4','유형5','유형6','유형7','유형8','유형9','유형10','유형11','유형12','유형13','유형14','유형15']
-class_list = ['Hemorrhagic','Ischemic']
+class_list = ['Normal', 'Ischemic','Hemorrhagic']
 params = {'image_size': 512,
           'lr': 2e-4,
           'beta1': 0.5,

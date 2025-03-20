@@ -21,7 +21,7 @@ from conditionDiffusion.diffusion import GaussianDiffusion
 from conditionDiffusion.Scheduler import GradualWarmupScheduler
 from PIL import Image
 print(f"GPUs used:\t{torch.cuda.device_count()}")
-device = torch.device("cuda",1)
+device = torch.device("cuda",0)
 print(f"Device:\t\t{device}")
 import pytorch_model_summary as tms
 
@@ -31,13 +31,13 @@ def create_dir(path):
     return path
 
 
-class_list = ['Hemorrhagic', 'Ischemic']
+class_list = ['Normal', 'Ischemic','Hemorrhagic']
 params = {'image_size': 512,
           'lr': 2e-5,
           'beta1': 0.5,
           'beta2': 0.999,
           'batch_size': 8,
-          'epochs': 1000,
+          'epochs': 10000,
           'n_classes': None,
           'data_path': '../../data/2D_CT/',
           'image_count': 5000,
@@ -206,22 +206,24 @@ for epc in range(params['epochs']):
         all_samples = []
         each_device_batch =params['batch_size']//len(class_list)
         with torch.no_grad():
-            lab = torch.ones(len(class_list), each_device_batch // len(class_list)).type(torch.long) \
+
+            lab = torch.ones(len(class_list), each_device_batch).type(torch.long) \
             * torch.arange(start = 0, end = len(class_list)).reshape(-1, 1)
             lab = lab.reshape(-1, 1).squeeze()
             lab = lab.to(device)
             cemb = cemblayer(lab)
-            genshape = (each_device_batch , params['outch'], params['image_size'], params['image_size'])
+            genshape = (each_device_batch*len(class_list) , params['outch'], params['image_size'], params['image_size'])
             if params['ddim']:
                 generated = diffusion.ddim_sample(genshape, 50, 0, 'quadratic', cemb = cemb)
             else:
                 generated = diffusion.sample(genshape, cemb = cemb)
             img = transback(generated)
-            img = img.reshape(len(class_list), each_device_batch // len(class_list), params['outch'], params['image_size'], params['image_size']).contiguous()
+            img = img.reshape(len(class_list), each_device_batch, params['outch'], params['image_size'], params['image_size']).contiguous()
             all_samples.append(img)
-            samples = torch.concat(all_samples, dim = 1).reshape(each_device_batch, params['outch'],params['image_size'], params['image_size'])
+            samples = torch.concat(all_samples, dim = 1).reshape(len(class_list)*each_device_batch, params['outch'],params['image_size'], params['image_size'])
         create_dir(f'../../result/conditionDiff/CT/')
-        save_image(samples,f'../../result/conditionDiff/CT/generated_{epc+1}_pict.png', nrow = each_device_batch // len(class_list))
+
+        save_image(samples,f'../../result/conditionDiff/CT/generated_{epc+1}_pict.png', nrow = each_device_batch)
         # save checkpoints
         checkpoint = {
                             'net':diffusion.model.state_dict(),
