@@ -11,16 +11,16 @@ from torchvision.utils import save_image
 from torch import Tensor
 from PIL import Image
 from torchinfo import summary
-from EDM2.edm2Diffutsion import UNet, EDM2Wrapper, edm2_loss, edm2_sample
+from EDM2.model import UNet, EDM2Wrapper, edm2_loss, edm2_sample
 
 
-class_list = ['Normal', 'Hemorrhagic']
+class_list = ['DWI', 'ADC']
 params = {
     'image_size': 256,
-    'lr': 2e-5,
-    'batch_size': 16,
+    'lr': 1e-4,
+    'batch_size': 64,
     'epochs': 10000,
-    'data_path': '../../data/2D_CT/',
+    'data_path':'../../data/2D_MRI/',
     'image_count': 5000,
     'inch': 1,
     'outch': 1,
@@ -29,7 +29,7 @@ params = {
     'sigma_max': 80.0,
     'threshold': 0.02,
     'save_every': 5,
-    'save_path': '/edm2/CT',
+    'save_path': '/edm2/MRI',
     'rho': 7,
     'S_churn': 0,
     'S_noise': 1.0

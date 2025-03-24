@@ -8,64 +8,55 @@ import random
 from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset
 from torchvision.utils import save_image
-from torch import Tensor
-from PIL import Image
 from torchinfo import summary
-from EDM2.edm2Diffutsion import UNet, EDM2Wrapper, edm2_loss, edm2_sample
+from PIL import Image
+from EDM2.edm2Diffutsion import UNet, EDM2Wrapper, edm2_loss
 
-
+# 클래스 정의
 class_list = ['Normal', 'Hemorrhagic']
+
+# 하이퍼파라미터 설정
 params = {
-    'image_size': 512,
+    'image_size': 64,
     'lr': 2e-5,
-    'batch_size': 16,
-    'epochs': 10000,
+    'batch_size': 64,
+    'epochs': 20000,
     'data_path': '../../data/2D_CT/',
     'image_count': 5000,
     'inch': 1,
     'outch': 1,
-    'cdim': 10,
-    'sigma_min': 0.002,
+    'cdim': len(class_list),
+
+    'sigma_min': 0.01,
     'sigma_max': 80.0,
-    'threshold': 0.02,
+    'rho': 3,
+    'S_churn': 40,
+    'S_noise': 1.0,
+
+    'threshold': 0.0,
     'save_every': 5,
-    'save_path': '/edm2/CT',
-    'rho': 7,
-    'S_churn': 0,
-    'S_noise': 1.0
+    'save_path': '/edm2/CT'
 }
 
-print(f"GPUs used:\t{torch.cuda.device_count()}")
-device = torch.device("cuda", 0)
-print(f"Device:\t\t{device}")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print(f"Device: {device}")
 
-# 2. Transform 및 역정규화 함수
-transform = transforms.Compose([
+# 변환 정의
+trans = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.5,), (0.5,))
 ])
 
-
-# ⚙️ 전처리 함수
-trans = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.5,), (0.5,)),  # → [-1, 1]
-])
-
 def transback(data: torch.Tensor) -> torch.Tensor:
-    return data * 0.5 + 0.5  # → [0, 1]
+    return data * 0.5 + 0.5
 
-def create_dir(path: str) -> None:
-    os.makedirs(path, exist_ok=True)
-
-# 📂 이미지 경로 및 라벨 수집
+# 이미지 로드
 image_paths, image_labels = [], []
 for i, cname in enumerate(class_list):
     paths = sorted(glob(os.path.join(params['data_path'], cname, '*.png')))[:params['image_count']]
     image_paths.extend(paths)
     image_labels.extend([i] * len(paths))
 
-# 🖼️ 이미지를 메모리에 Tensor로 로딩 (흑백 1채널 기준)
 N = len(image_paths)
 C, H, W = params['inch'], params['image_size'], params['image_size']
 train_images = torch.zeros((N, C, H, W))
@@ -77,7 +68,7 @@ for i, path in enumerate(tqdm(image_paths)):
 
 train_labels = torch.tensor(image_labels, dtype=torch.long)
 
-# 🧱 Dataset 클래스 정의
+# 커스텀 Dataset
 class CustomDataset(Dataset):
     def __init__(self, images, labels):
         self.images = images
@@ -97,24 +88,20 @@ class CustomDataset(Dataset):
     def __len__(self):
         return len(self.images)
 
-# 📦 최종 Dataset & DataLoader
+# DataLoader
 train_dataset = CustomDataset(train_images, train_labels)
 dataloader = DataLoader(train_dataset, batch_size=params['batch_size'], shuffle=True)
 
-
-unet = UNet(params['inch'], params['outch'], cond_dim=params['cdim']).to(device)
-edm2_model = EDM2Wrapper(unet, sigma_min=params['sigma_min'], sigma_max=params['sigma_max']).to(device)
+# 모델 초기화
+unet = UNet(params['inch'], base_ch=64, ch_mults=(1, 2, 4), emb_dim=256, cond_dim=params['cdim']).to(device)
+edm2_model = EDM2Wrapper(unet, len(class_list), sigma_min=params['sigma_min'], sigma_max=params['sigma_max'], rho=params['rho']).to(device)
 optimizer = optim.AdamW(edm2_model.parameters(), lr=params['lr'], weight_decay=1e-4)
 
-# 6. 모델 구조 요약 출력
-test_batch = 1
-image_input = torch.randn(test_batch, 1, params['image_size'], params['image_size']).to(device)
-sigma_input = torch.ones(test_batch, 1).to(device) * 10.0
-class_input = torch.randint(0, len(class_list), (test_batch,)).to(device)
-
-summary(edm2_model.model, 
-        input_data=(image_input, sigma_input, unet.get_condition_embedding(class_input)),
-        col_names=["input_size", "output_size", "num_params"])
+# 모델 요약 출력
+image_input = torch.randn(4, 1, params['image_size'], params['image_size']).to(device)
+sigma_input = torch.ones(4, 1).to(device) * 10.0
+class_input = torch.randint(0, len(class_list), (4,)).to(device)
+summary(edm2_model.model, input_data=(image_input, sigma_input, unet.get_condition_embedding(class_input, num_classes=len(class_list))), col_names=["input_size", "output_size", "num_params"])
 
 for epc in range(params['epochs']):
     edm2_model.train()
@@ -127,10 +114,10 @@ for epc in range(params['epochs']):
             optimizer.zero_grad()
 
             if random.random() < params['threshold']:
-                mask = torch.rand(lab.shape[0]) < 0.5  # 절반만 mask
-                lab[mask] = -1  # -1 or special token
+                mask = torch.rand(lab.shape[0]) < 0.5
+                lab[mask] = -1
 
-            loss = edm2_loss(edm2_model, img, lab)
+            loss = edm2_loss(edm2_model, img, lab, sigma_data=0.5,num_class=len(class_list))
             loss.backward()
             optimizer.step()
 
@@ -142,21 +129,23 @@ for epc in range(params['epochs']):
                 'lr': optimizer.param_groups[0]['lr']
             })
 
-    # 8. 샘플 생성 및 모델 저장
+    # ------------------------
+    # Sample & Save
+    # ------------------------
     if epc % params['save_every'] == 0:
         edm2_model.eval()
         with torch.no_grad():
             each_device_batch = params['batch_size'] // len(class_list)
             lab = torch.arange(len(class_list)).repeat(each_device_batch).to(device)
             genshape = (len(lab), params['outch'], params['image_size'], params['image_size'])
-            samples = edm2_sample(
-                edm2_model, genshape, 
-                num_steps=18,
-                sigma_min=params['sigma_min'],
-                sigma_max=params['sigma_max'],
-                rho=params['rho'],
+            samples = edm2_model.sample(
+                shape=genshape,
+                num_steps=50,
                 S_churn=params['S_churn'],
+                S_min=params['sigma_min'],
+                S_max=params['sigma_max'],
                 S_noise=params['S_noise'],
+                guidance_weight=2.0,
                 class_labels=lab
             )
             samples = transback(samples)
