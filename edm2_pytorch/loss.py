@@ -1,8 +1,8 @@
 import torch
 
-def edm2_loss(model, x, sigma, class_labels=None, cfg_drop_prob=0.1):
+def edm2_loss(model, x, sigma, class_labels=None, cfg_drop_prob=0.1, sigma_data=0.5):
     """
-    SNR-weighted denoising loss for EDM2
+    EDM2 SNR-weighted denoising loss with learned log-variance.
     """
     noise = torch.randn_like(x)
     noised_x = x + sigma[:, None, None, None] * noise
@@ -11,8 +11,12 @@ def edm2_loss(model, x, sigma, class_labels=None, cfg_drop_prob=0.1):
     if class_labels is not None and torch.rand(1).item() < cfg_drop_prob:
         class_labels = None
 
-    denoised = model(noised_x, sigma, class_labels)
+    # forward with logvar prediction
+    denoised, logvar = model(noised_x, sigma, class_labels, return_logvar=True)
 
-    weight = 1 / (sigma ** 2)
-    loss = weight[:, None, None, None] * (denoised - noise).pow(2)
+    # SNR-based weight (same as EDM2 paper)
+    weight = (sigma ** 2 + sigma_data ** 2) / (sigma * sigma_data) ** 2
+    weight = weight[:, None, None, None].expand_as(x)  # shape: [B, 1, 1, 1]
+    # Final loss
+    loss = (weight / logvar.exp()) * ((denoised - noise) ** 2) + logvar
     return loss.mean()
