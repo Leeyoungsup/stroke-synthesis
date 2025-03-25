@@ -99,10 +99,10 @@ class UNetEDM2(nn.Module):
         self.output_proj = nn.Sequential(
             nn.GroupNorm(8, base_channels),
             SiLU(),
-            nn.Conv2d(base_channels, out_channels * 2, 3, padding=1)  # ⭐ logvar 포함
+            nn.Conv2d(base_channels, out_channels, 3, padding=1)
         )
 
-    def forward(self, x, sigma, class_labels=None, return_logvar=False):
+    def forward(self, x, sigma, class_labels=None):
         sigma = sigma.view(-1, 1)
         emb = self.time_embedding(sigma)
 
@@ -124,13 +124,8 @@ class UNetEDM2(nn.Module):
         x6 = torch.cat([x6, x1], dim=1)
         x7 = self.up1(x6, emb)
 
-        out = self.output_proj(x7)  # [B, 2*C, H, W]
-        denoised, logvar = torch.chunk(out, 2, dim=1)
-        logvar = torch.clamp(logvar, min=-10.0, max=10.0) 
-        if return_logvar:
-            return denoised, logvar
-        else:
-            return denoised
+        out = self.output_proj(x7)  # [B, C, H, W]
+        return out
 # --- EMA wrapper ---
 class EMA:
     def __init__(self, model, decay=0.999):

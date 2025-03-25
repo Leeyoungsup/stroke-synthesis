@@ -29,7 +29,6 @@ class EDM2Sampler:
         self.cfg_scale = cfg_scale
         self.device = device
 
-    @torch.no_grad()
     def sample(self, shape, class_labels=None):
         x = torch.randn(shape, device=self.device) * self.schedule.sigmas[0]
 
@@ -38,7 +37,7 @@ class EDM2Sampler:
             sigma_next = self.schedule.sigmas[i + 1]
             x = self._step(x, sigma_curr, sigma_next, class_labels)
 
-        return x
+        return x.clamp(0, 1)  # ✅ 마지막에 다시 denoise X
 
     def _step(self, x, sigma_curr, sigma_next, class_labels):
         if self.sampler_type == 'euler':
