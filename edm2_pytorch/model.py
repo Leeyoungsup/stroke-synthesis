@@ -10,26 +10,19 @@ def get_timestep_embedding(timesteps, embedding_dim):
     """
     Create sinusoidal timestep embeddings as in EDM2 official implementation.
     Args:
-        timesteps: Tensor of shape [B], containing timesteps (or log-sigma).
+        timesteps: Tensor of shape [B], containing log-sigma values.
         embedding_dim: Dimension of the embedding vector.
     Returns:
         Tensor of shape [B, embedding_dim]
     """
     assert len(timesteps.shape) == 1  # (B,)
     half_dim = embedding_dim // 2
-
-    # Create frequencies
     freqs = torch.exp(
         -math.log(10000) * torch.arange(0, half_dim, dtype=torch.float32, device=timesteps.device) / half_dim
-    )  # [half_dim]
-
-    # Outer product: [B, 1] * [1, half_dim] => [B, half_dim]
+    )
     args = timesteps[:, None].float() * freqs[None, :]
-
-    # Sinusoidal embeddings
     emb = torch.cat([torch.sin(args), torch.cos(args)], dim=-1)  # [B, embedding_dim]
     return emb
-
 
 class SiLU(nn.Module):
     def forward(self, x):
@@ -41,12 +34,9 @@ class ResidualBlock(nn.Module):
         self.norm1 = nn.GroupNorm(8, in_channels)
         self.activation = SiLU()
         self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
-
         self.emb_proj = nn.Linear(embedding_dim, out_channels)
-
         self.norm2 = nn.GroupNorm(8, out_channels)
         self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=1)
-
         if in_channels != out_channels:
             self.skip = nn.Conv2d(in_channels, out_channels, 1)
         else:
@@ -73,16 +63,12 @@ class Upsample(nn.Module):
 
     def forward(self, x):
         return self.op(x)
+
 class UNetEDM2(nn.Module):
     def __init__(self, in_channels=1, out_channels=1, base_channels=64, class_embed_dim=128, num_classes=2):
         super().__init__()
         self.class_embedding = nn.Embedding(num_classes, class_embed_dim)
-
-        self.time_embedding = nn.Sequential(
-            nn.Linear(1, class_embed_dim),
-            SiLU(),
-            nn.Linear(class_embed_dim, class_embed_dim)
-        )
+        self.embedding_dim = class_embed_dim
 
         self.input_proj = nn.Conv2d(in_channels, base_channels, 3, padding=1)
 
@@ -99,19 +85,18 @@ class UNetEDM2(nn.Module):
         self.output_proj = nn.Sequential(
             nn.GroupNorm(8, base_channels),
             SiLU(),
-            nn.Conv2d(base_channels, out_channels, 3, padding=1)
+            nn.Conv2d(base_channels, out_channels * 2, 3, padding=1)
         )
 
-    def forward(self, x, sigma, class_labels=None):
-        sigma = sigma.view(-1, 1)
-        emb = self.time_embedding(sigma)
+    def forward(self, x, sigma, class_labels=None, return_logvar=False):
+        log_sigma = sigma.view(-1).log()  # ✅ log_sigma 사용
+        emb = get_timestep_embedding(log_sigma, self.embedding_dim)  # ✅ 적용됨
 
         if class_labels is not None:
             class_emb = self.class_embedding(class_labels)
             emb = emb + class_emb
 
         x = self.input_proj(x)
-
         x1 = self.down1(x, emb)
         x2 = self.down2(x1, emb)
         x3 = self.downsample1(x2)
@@ -124,8 +109,13 @@ class UNetEDM2(nn.Module):
         x6 = torch.cat([x6, x1], dim=1)
         x7 = self.up1(x6, emb)
 
-        out = self.output_proj(x7)  # [B, C, H, W]
-        return out
+        out = self.output_proj(x7)
+        denoised, logvar = torch.chunk(out, 2, dim=1)
+        if return_logvar:
+            return denoised, logvar
+        else:
+            return denoised
+
 # --- EMA wrapper ---
 class EMA:
     def __init__(self, model, decay=0.999):

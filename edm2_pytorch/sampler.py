@@ -37,7 +37,13 @@ class EDM2Sampler:
             sigma_next = self.schedule.sigmas[i + 1]
             x = self._step(x, sigma_curr, sigma_next, class_labels)
 
-        return x.clamp(0, 1)  # ✅ 마지막에 다시 denoise X
+        # ✅ Final denoising step: x - sigma * predicted_noise
+        final_sigma = self.schedule.sigmas[-1]
+        sigma_tensor = torch.full((x.size(0),), final_sigma, device=self.device)
+        final_noise = self._denoise(x, sigma_tensor, class_labels)
+        x = x - final_sigma * final_noise
+
+        return x.clamp(0, 1)
 
     def _step(self, x, sigma_curr, sigma_next, class_labels):
         if self.sampler_type == 'euler':
@@ -67,7 +73,6 @@ class EDM2Sampler:
         return x + 0.5 * (sigma_next - sigma_curr) * (d + d_prime)
 
     def _dpmpp_step(self, x, sigma_curr, sigma_next, class_labels):
-        # Simple DPM++-like step (approximate version)
         sigma_tensor = torch.full((x.size(0),), sigma_curr, device=self.device)
         denoised = self._denoise(x, sigma_tensor, class_labels)
         d = (x - denoised) / sigma_curr
