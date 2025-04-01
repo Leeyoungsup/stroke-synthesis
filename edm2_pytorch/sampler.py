@@ -1,6 +1,6 @@
 import torch
 from tqdm import tqdm
-
+from edm2_pytorch.util import get_sigmas_karras_with_p
 # --- EDM2 Noise Schedule Class ---
 class EDM2Schedule:
     def __init__(self, steps, P_mean=-1.2, P_std=1.2, rho=7.0, device='cuda'):
@@ -9,7 +9,7 @@ class EDM2Schedule:
         self.P_std = P_std
         self.rho = rho
         self.device = device
-        self.sigmas = self._generate_schedule()
+        self.sigmas = get_sigmas_karras_with_p(steps, P_mean, P_std, rho, device)
 
     def _generate_schedule(self):
         sigma_max = torch.exp(torch.tensor(self.P_mean + 2 * self.P_std))

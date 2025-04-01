@@ -1,122 +1,99 @@
+# EDM2 official-style refactored code
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from copy import deepcopy
-from tqdm import tqdm
 import math
-import torch
+from copy import deepcopy
 
+# --- Sinusoidal Timestep Embedding ---
 def get_timestep_embedding(timesteps, embedding_dim):
-    """
-    Create sinusoidal timestep embeddings as in EDM2 official implementation.
-    Args:
-        timesteps: Tensor of shape [B], containing log-sigma values.
-        embedding_dim: Dimension of the embedding vector.
-    Returns:
-        Tensor of shape [B, embedding_dim]
-    """
-    assert len(timesteps.shape) == 1  # (B,)
-    half_dim = embedding_dim // 2
+    assert len(timesteps.shape) == 1
+    half = embedding_dim // 2
     freqs = torch.exp(
-        -math.log(10000) * torch.arange(0, half_dim, dtype=torch.float32, device=timesteps.device) / half_dim
+        -math.log(10000) * torch.arange(0, half, dtype=torch.float32, device=timesteps.device) / half
     )
-    args = timesteps[:, None].float() * freqs[None, :]
-    emb = torch.cat([torch.sin(args), torch.cos(args)], dim=-1)  # [B, embedding_dim]
-    return emb
+    args = timesteps[:, None].float() * freqs[None]
+    return torch.cat([torch.sin(args), torch.cos(args)], dim=-1)
 
+# --- SiLU Activation ---
 class SiLU(nn.Module):
     def forward(self, x):
         return x * torch.sigmoid(x)
 
-class ResidualBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, embedding_dim):
+# --- Residual Block ---
+class ResBlock(nn.Module):
+    def __init__(self, in_ch, out_ch, emb_ch):
         super().__init__()
-        self.norm1 = nn.GroupNorm(8, in_channels)
-        self.activation = SiLU()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
-        self.emb_proj = nn.Linear(embedding_dim, out_channels)
-        self.norm2 = nn.GroupNorm(8, out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=1)
-        if in_channels != out_channels:
-            self.skip = nn.Conv2d(in_channels, out_channels, 1)
-        else:
-            self.skip = nn.Identity()
+        self.norm1 = nn.GroupNorm(8, in_ch)
+        self.act = SiLU()
+        self.conv1 = nn.Conv2d(in_ch, out_ch, 3, padding=1)
+        self.emb_proj = nn.Linear(emb_ch, out_ch)
+        self.norm2 = nn.GroupNorm(8, out_ch)
+        self.conv2 = nn.Conv2d(out_ch, out_ch, 3, padding=1)
+        self.skip = nn.Conv2d(in_ch, out_ch, 1) if in_ch != out_ch else nn.Identity()
 
     def forward(self, x, emb):
-        h = self.conv1(self.activation(self.norm1(x)))
+        h = self.conv1(self.act(self.norm1(x)))
         h += self.emb_proj(emb)[:, :, None, None]
-        h = self.conv2(self.activation(self.norm2(h)))
+        h = self.conv2(self.act(self.norm2(h)))
         return h + self.skip(x)
 
-class Downsample(nn.Module):
-    def __init__(self, channels):
+# --- Downsample / Upsample ---
+class Down(nn.Module):
+    def __init__(self, ch):
         super().__init__()
-        self.op = nn.Conv2d(channels, channels, 3, stride=2, padding=1)
+        self.conv = nn.Conv2d(ch, ch, 3, stride=2, padding=1)
+    def forward(self, x): return self.conv(x)
 
-    def forward(self, x):
-        return self.op(x)
-
-class Upsample(nn.Module):
-    def __init__(self, channels):
+class Up(nn.Module):
+    def __init__(self, ch):
         super().__init__()
-        self.op = nn.ConvTranspose2d(channels, channels, 4, stride=2, padding=1)
+        self.deconv = nn.ConvTranspose2d(ch, ch, 4, stride=2, padding=1)
+    def forward(self, x): return self.deconv(x)
 
-    def forward(self, x):
-        return self.op(x)
-
+# --- UNet for EDM2 ---
 class UNetEDM2(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1, base_channels=64, class_embed_dim=128, num_classes=2):
+    def __init__(self, in_ch=1, out_ch=1, base=64, emb_ch=128, num_classes=2):
         super().__init__()
-        self.class_embedding = nn.Embedding(num_classes, class_embed_dim)
-        self.embedding_dim = class_embed_dim
+        self.class_embed = nn.Embedding(num_classes, emb_ch)
+        self.emb_ch = emb_ch
 
-        self.input_proj = nn.Conv2d(in_channels, base_channels, 3, padding=1)
+        self.input = nn.Conv2d(in_ch, base, 3, padding=1)
+        self.down1 = ResBlock(base, base, emb_ch)
+        self.down2 = ResBlock(base, base*2, emb_ch)
+        self.downsample = Down(base*2)
+        self.middle = ResBlock(base*2, base*2, emb_ch)
+        self.up = Up(base*2)
+        self.up2 = ResBlock(base*4, base, emb_ch)
+        self.up1 = ResBlock(base*2, base, emb_ch)
 
-        self.down1 = ResidualBlock(base_channels, base_channels, class_embed_dim)
-        self.down2 = ResidualBlock(base_channels, base_channels * 2, class_embed_dim)
-        self.downsample1 = Downsample(base_channels * 2)
-
-        self.middle = ResidualBlock(base_channels * 2, base_channels * 2, class_embed_dim)
-
-        self.upsample1 = Upsample(base_channels * 2)
-        self.up2 = ResidualBlock(base_channels * 4, base_channels, class_embed_dim)
-        self.up1 = ResidualBlock(base_channels * 2, base_channels, class_embed_dim)
-
-        self.output_proj = nn.Sequential(
-            nn.GroupNorm(8, base_channels),
-            SiLU(),
-            nn.Conv2d(base_channels, out_channels * 2, 3, padding=1)
+        self.output = nn.Sequential(
+            nn.GroupNorm(8, base), SiLU(),
+            nn.Conv2d(base, out_ch * 2, 3, padding=1)
         )
 
     def forward(self, x, sigma, class_labels=None, return_logvar=False):
-        log_sigma = sigma.view(-1).log()  # ✅ log_sigma 사용
-        emb = get_timestep_embedding(log_sigma, self.embedding_dim)  # ✅ 적용됨
-
+        log_sigma = sigma.log()
+        emb = get_timestep_embedding(log_sigma, self.emb_ch)
         if class_labels is not None:
-            class_emb = self.class_embedding(class_labels)
-            emb = emb + class_emb
+            emb += self.class_embed(class_labels)
 
-        x = self.input_proj(x)
-        x1 = self.down1(x, emb)
+        x0 = self.input(x)
+        x1 = self.down1(x0, emb)
         x2 = self.down2(x1, emb)
-        x3 = self.downsample1(x2)
-
+        x3 = self.downsample(x2)
         x4 = self.middle(x3, emb)
-
-        x5 = self.upsample1(x4)
+        x5 = self.up(x4)
         x5 = torch.cat([x5, x2], dim=1)
         x6 = self.up2(x5, emb)
         x6 = torch.cat([x6, x1], dim=1)
         x7 = self.up1(x6, emb)
+        out = self.output(x7)
+        denoised, logvar = out.chunk(2, dim=1)
+        return (denoised, logvar) if return_logvar else denoised
 
-        out = self.output_proj(x7)
-        denoised, logvar = torch.chunk(out, 2, dim=1)
-        if return_logvar:
-            return denoised, logvar
-        else:
-            return denoised
-
-# --- EMA wrapper ---
+# --- EMA Wrapper ---
 class EMA:
     def __init__(self, model, decay=0.999):
         self.ema_model = deepcopy(model)
@@ -125,8 +102,8 @@ class EMA:
 
     @torch.no_grad()
     def update(self, model):
-        for ema_param, param in zip(self.ema_model.parameters(), model.parameters()):
-            ema_param.data.mul_(self.decay).add_(param.data, alpha=1 - self.decay)
+        for e, m in zip(self.ema_model.parameters(), model.parameters()):
+            e.data.mul_(self.decay).add_(m.data, alpha=1 - self.decay)
 
     def forward(self, *args, **kwargs):
         return self.ema_model(*args, **kwargs)
