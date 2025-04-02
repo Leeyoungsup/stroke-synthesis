@@ -41,10 +41,10 @@ params = {
     'threshold': 0.0,
 
     # 모델 구조
-    'cdim': 96,                        # base channels
+    'cdim': 64,                        # base channels
     'channel_mult': [1, 2, 4, 8],      # 채널 증가 비율
     'attn_resolutions': [32,16,8],           # self-attention이 들어갈 해상도 (예: [16])
-    'layers_per_block': 4           # 각 레벨마다 residual block 수
+    'layers_per_block': 2           # 각 레벨마다 residual block 수
 }
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -121,7 +121,7 @@ model = EDMPrecond(
 
 optimizer = optim.Adam(model.parameters(), lr=params['lr'])
 #모델 불러오기
-model.load_state_dict(torch.load('../../model/edm2/CT/model_epoch_41.pt'))
+# model.load_state_dict(torch.load('../../model/edm2/CT/model_epoch_41.pt'))
 # 모델 요약
 summary(
     model,
