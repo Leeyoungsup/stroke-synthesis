@@ -159,7 +159,9 @@ for epoch in range(1, params['epochs'] + 1):
         # 모델 forward 및 손실 계산
         denoised = model(noised, sigmas, class_labels=class_onehot)
         target = imgs
-        loss = (denoised - target).abs().mean()
+        l1 = (denoised - target).abs().mean()
+        l2 = torch.nn.functional.mse_loss(denoised, target)
+        loss = 0.8 * l1 + 0.2 * l2
 
         # 역전파 및 업데이트
         optimizer.zero_grad()
