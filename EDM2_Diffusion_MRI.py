@@ -8,76 +8,82 @@ import random
 from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset
 from torchvision.utils import save_image
-from torch import Tensor
-from PIL import Image
 from torchinfo import summary
-from EDM2.model import UNet, EDM2Wrapper, edm2_loss, edm2_sample
+from PIL import Image
+from edm2_pytorch.model import SongUNet, DhariwalUNet, VPPrecond, VEPrecond, iDDPMPrecond, EDMPrecond
 
 
-class_list = ['DWI', 'ADC']
+# 클래스 정의
+class_list = ['Normal','Ischemic']
+
 params = {
+    # 데이터 설정
+    'data_path': '../../data/2D_MRI/ADC/',
+    'image_count': 10000,
     'image_size': 256,
-    'lr': 1e-4,
-    'batch_size': 64,
-    'epochs': 10000,
-    'data_path':'../../data/2D_MRI/',
-    'image_count': 5000,
     'inch': 1,
     'outch': 1,
-    'cdim': 10,
+
+    # 학습 설정
+    'lr': 2e-4,
+    'batch_size': 8,
+    'epochs': 10000,
+    'save_every': 10,
+    'save_path': '../../result/edm2/MRI/ADC/',
+
+    # EDM 샘플링 관련
+    'P_mean': -1.2,
+    'P_std': 1.2,
+    'rho': 7.0,
     'sigma_min': 0.002,
     'sigma_max': 80.0,
-    'threshold': 0.02,
-    'save_every': 5,
-    'save_path': '/edm2/MRI',
-    'rho': 7,
-    'S_churn': 0,
-    'S_noise': 1.0
+    'sigma_data': 0.5,
+    'threshold': 0.0,
+
+    # 모델 구조
+    'cdim': 96,                        # base channels
+    'channel_mult': [1, 2, 4, 8],      # 채널 증가 비율
+    'attn_resolutions': [32,16,8],           # self-attention이 들어갈 해상도 (예: [16])
+    'layers_per_block': 4           # 각 레벨마다 residual block 수
 }
 
-print(f"GPUs used:\t{torch.cuda.device_count()}")
-device = torch.device("cuda", 1)
-print(f"Device:\t\t{device}")
-
-# 2. Transform 및 역정규화 함수
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.5,), (0.5,))
-])
-
-
-# ⚙️ 전처리 함수
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+print(f"Device: {device}")
+def create_dir(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+        print(f"Directory {path} created.")
+# 변환 정의
+# trans = transforms.Compose([
+#     transforms.ToTensor(),
+#     transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))
+# ])
 trans = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.5,), (0.5,)),  # → [-1, 1]
+    transforms.ToTensor()
 ])
+def transback(x):
+    return (x.clamp(-1, 1) + 1) * 0.5
 
-def transback(data: torch.Tensor) -> torch.Tensor:
-    return data * 0.5 + 0.5  # → [0, 1]
-
-def create_dir(path: str) -> None:
-    os.makedirs(path, exist_ok=True)
-
-# 📂 이미지 경로 및 라벨 수집
+# 이미지 로드
 image_paths, image_labels = [], []
 for i, cname in enumerate(class_list):
     paths = sorted(glob(os.path.join(params['data_path'], cname, '*.png')))[:params['image_count']]
     image_paths.extend(paths)
     image_labels.extend([i] * len(paths))
 
-# 🖼️ 이미지를 메모리에 Tensor로 로딩 (흑백 1채널 기준)
 N = len(image_paths)
 C, H, W = params['inch'], params['image_size'], params['image_size']
-train_images = torch.zeros((N, C, H, W))
+train_images = torch.zeros((N, C, H, W), dtype=torch.float32)
 
 print("Loading images into tensor...")
 for i, path in enumerate(tqdm(image_paths)):
     img = Image.open(path).convert('L').resize((W, H))
+    
     train_images[i] = trans(img)
-
+train_images=train_images*2-1.
 train_labels = torch.tensor(image_labels, dtype=torch.long)
 
-# 🧱 Dataset 클래스 정의
+# 커스텀 Dataset
 class CustomDataset(Dataset):
     def __init__(self, images, labels):
         self.images = images
@@ -86,90 +92,112 @@ class CustomDataset(Dataset):
     def __getitem__(self, index):
         img = self.images[index]
         lab = self.labels[index]
-
-        if random.random() > 0.5:
-            img = transforms.functional.hflip(img)
-        if random.random() > 0.5:
-            img = transforms.functional.vflip(img)
-
+        # if random.random() > 0.5:
+        #     img = transforms.functional.hflip(img)
+        # if random.random() > 0.5:
+        #     img = transforms.functional.vflip(img)
         return img, lab
 
     def __len__(self):
         return len(self.images)
 
-# 📦 최종 Dataset & DataLoader
+# DataLoader
 train_dataset = CustomDataset(train_images, train_labels)
-dataloader = DataLoader(train_dataset, batch_size=params['batch_size'], shuffle=True)
+dataloader = DataLoader(train_dataset, batch_size=params['batch_size'], shuffle=True,drop_last=True)
+# 모델 초기화
+model = EDMPrecond(
+    img_resolution=params['image_size'],
+    img_channels=params['inch'],
+    label_dim=len(class_list),
+    use_fp16=False,
+    sigma_min=params['sigma_min'],
+    sigma_max=params['sigma_max'],
+    sigma_data=params['sigma_data'],
+    model_type='DhariwalUNet',  # 또는 'SongUNet'
+    model_channels=params['cdim'],
+    channel_mult=params['channel_mult'],
+    channel_mult_emb=4,
+    num_blocks=params['layers_per_block'],
+    attn_resolutions=params['attn_resolutions'],
+    dropout=0.1,
+).to(device)
 
+optimizer = optim.Adam(model.parameters(), lr=params['lr'])
 
-unet = UNet(params['inch'], params['outch'], cond_dim=params['cdim']).to(device)
-edm2_model = EDM2Wrapper(unet, sigma_min=params['sigma_min'], sigma_max=params['sigma_max']).to(device)
-optimizer = optim.AdamW(edm2_model.parameters(), lr=params['lr'], weight_decay=1e-4)
+# 모델 요약
+summary(
+    model,
+    input_data=(
+        torch.randn(1, params['inch'], params['image_size'], params['image_size']).to(device),  # noised input
+        torch.tensor([params['sigma_data']], device=device),  # sigma
+        torch.nn.functional.one_hot(torch.tensor([0]), num_classes=len(class_list)).float().to(device)  # dummy class label
+    ),
+    col_names=["input_size", "output_size", "num_params", "kernel_size"],
+    depth=4,
+    verbose=1
+)
 
-# 6. 모델 구조 요약 출력
-test_batch = 1
-image_input = torch.randn(test_batch, 1, params['image_size'], params['image_size']).to(device)
-sigma_input = torch.ones(test_batch, 1).to(device) * 10.0
-class_input = torch.randint(0, len(class_list), (test_batch,)).to(device)
+for epoch in range(1, params['epochs'] + 1):
+    model.train()
+    total_loss = 0.0
 
-summary(edm2_model.model, 
-        input_data=(image_input, sigma_input, unet.get_condition_embedding(class_input)),
-        col_names=["input_size", "output_size", "num_params"])
+    pbar = tqdm(dataloader, desc=f"Epoch {epoch}/{params['epochs']}")
+    for step, (imgs, labels) in enumerate(pbar, start=1):
+        imgs, labels = imgs.to(device), labels.to(device)
 
-for epc in range(params['epochs']):
-    edm2_model.train()
-    total_loss = 0
-    steps = 0
+        # EDM 논문 공식 σ 샘플링 방식 (log-normal)
+        rnd_normal = torch.randn([imgs.shape[0]], device=imgs.device)
+        sigmas = (params['sigma_data'] ** 2 + (rnd_normal * params['P_std'] + params['P_mean']).exp() ** 2).sqrt()
 
-    with tqdm(dataloader, dynamic_ncols=True) as tqdmDataLoader:
-        for img, lab in tqdmDataLoader:
-            img, lab = img.to(device), lab.to(device)
-            optimizer.zero_grad()
+        # 노이즈 추가
+        noise = torch.randn_like(imgs)
+        noised = imgs + sigmas.view(-1, 1, 1, 1) * noise
 
-            if random.random() < params['threshold']:
-                mask = torch.rand(lab.shape[0]) < 0.5  # 절반만 mask
-                lab[mask] = -1  # -1 or special token
+        # 클래스 one-hot encoding
+        class_onehot = torch.nn.functional.one_hot(labels, num_classes=len(class_list)).float()
 
-            loss = edm2_loss(edm2_model, img, lab)
-            loss.backward()
-            optimizer.step()
+        # 모델 forward 및 손실 계산
+        denoised = model(noised, sigmas, class_labels=class_onehot)
+        target = imgs
+        loss = (denoised - target).abs().mean()
 
-            total_loss += loss.item()
-            steps += 1
-            tqdmDataLoader.set_postfix({
-                'epoch': epc + 1,
-                'loss': total_loss / steps,
-                'lr': optimizer.param_groups[0]['lr']
-            })
+        # 역전파 및 업데이트
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-    # 8. 샘플 생성 및 모델 저장
-    if epc % params['save_every'] == 0:
-        edm2_model.eval()
+        total_loss += loss.item()
+        avg_loss = total_loss / step
+        pbar.set_postfix(loss=f"{avg_loss:.4f}")
+
+    
+        # 주기적으로 샘플 저장
+    if (epoch - 1) % params['save_every'] == 0:
+        model.eval()
         with torch.no_grad():
-            each_device_batch = params['batch_size'] // len(class_list)
-            lab = torch.arange(len(class_list)).repeat(each_device_batch).to(device)
-            genshape = (len(lab), params['outch'], params['image_size'], params['image_size'])
-            samples = edm2_sample(
-                edm2_model, genshape, 
-                num_steps=18,
-                sigma_min=params['sigma_min'],
-                sigma_max=params['sigma_max'],
-                rho=params['rho'],
-                S_churn=params['S_churn'],
-                S_noise=params['S_noise'],
-                class_labels=lab
-            )
-            samples = transback(samples)
+            # 각 클래스별 동일 개수로 label 생성
+            num_per_class = params['batch_size'] // len(class_list)
+            label_list = []
+            for i in range(len(class_list)):
+                label_list.extend([i] * num_per_class)
+            label_tensor = torch.tensor(label_list, device=device)
+            class_onehot = torch.nn.functional.one_hot(label_tensor, num_classes=len(class_list)).float()
 
-        result_path = '../../result' + params['save_path']
-        model_path = '../../model' + params['save_path']
-        os.makedirs(result_path, exist_ok=True)
-        os.makedirs(model_path, exist_ok=True)
+            # 입력 noise 생성
+            z = torch.randn(len(label_tensor), params['inch'], params['image_size'], params['image_size']).to(device)
 
-        save_image(samples, f'{result_path}/generated_{epc+1}_pict.png', nrow=each_device_batch)
-        torch.save({
-            'model': edm2_model.state_dict(),
-            'optimizer': optimizer.state_dict(),
-        }, f'{model_path}/ckpt_{epc+1}.pt')
+            # 샘플링 루프: Euler-style
+            sigma = torch.full((z.shape[0], 1, 1, 1), params['sigma_max'], device=device)
+            for _ in tqdm(range(50), desc="Sampling"):
+                denoised = model(z, sigma, class_labels=class_onehot)
+                d = (z - denoised) / sigma
+                dt = -0.9 * sigma
+                z = z + d * dt
+                sigma = sigma + dt
+                sigma = sigma.clamp(min=params['sigma_min'])
 
-        torch.cuda.empty_cache()
+            samples = transback(z)
+            create_dir(params['save_path'])
+            create_dir(params['save_path'].replace('result','model'))
+            save_image(samples, os.path.join(params['save_path'], f'sample_epoch_{epoch}.png'), nrow=num_per_class)
+            torch.save(model.state_dict(), os.path.join(params['save_path'].replace('result','model'), f'model_epoch_{epoch}.pt'))
