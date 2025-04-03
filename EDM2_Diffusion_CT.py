@@ -25,25 +25,23 @@ params = {
     'outch': 1,
 
     # 학습 설정
-    'lr': 2e-4,
-    'batch_size': 8,
+    'lr': 2e-5,
+    'batch_size': 4,
     'epochs': 10000,
     'save_every': 10,
     'save_path': '../../result/edm2/CT',
 
     # EDM 샘플링 관련
-    'P_mean': -1.2,
-    'P_std': 1.2,
-    'rho': 7.0,
+    'rho': 3.0,
     'sigma_min': 0.002,
-    'sigma_max': 80.0,
+    'sigma_max': 30.0,
     'sigma_data': 0.5,
     'threshold': 0.0,
 
     # 모델 구조
     'cdim': 64,                        # base channels
-    'channel_mult': [1, 2, 4, 8],      # 채널 증가 비율
-    'attn_resolutions': [32,16,8],           # self-attention이 들어갈 해상도 (예: [16])
+    'channel_mult': [1, 2, 4,8],      # 채널 증가 비율
+    'attn_resolutions': [],           # self-attention이 들어갈 해상도 (예: [16])
     'layers_per_block': 2           # 각 레벨마다 residual block 수
 }
 
@@ -97,7 +95,15 @@ class CustomDataset(Dataset):
 
     def __len__(self):
         return len(self.images)
+def edm_sample_sigma(batch_size, rho, sigma_min, sigma_max, device):
+    t = torch.rand(batch_size, device=device)
+    sigmas = (sigma_max ** (1 / rho) + t * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
+    return sigmas
 
+def get_edm_sigma_schedule(sigma_min, sigma_max, rho, num_steps, device):
+    ramp = torch.linspace(0, 1, num_steps, device=device)
+    sigmas = (sigma_max ** (1 / rho) + ramp * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
+    return sigmas
 # DataLoader
 train_dataset = CustomDataset(train_images, train_labels)
 dataloader = DataLoader(train_dataset, batch_size=params['batch_size'], shuffle=True,drop_last=True)
@@ -135,6 +141,14 @@ summary(
     verbose=1
 )
 scaler = torch.cuda.amp.GradScaler()
+num_steps = 50
+shared_sigmas = get_edm_sigma_schedule(
+    sigma_min=params['sigma_min'],
+    sigma_max=params['sigma_max'],
+    rho=params['rho'],
+    num_steps=num_steps,
+    device=device
+)
 for epoch in range(1, params['epochs'] + 1):
     model.train()
     total_loss = 0.0
@@ -144,8 +158,7 @@ for epoch in range(1, params['epochs'] + 1):
         imgs, labels = imgs.to(device), labels.to(device)
 
         # EDM 논문 공식 σ 샘플링 방식 (log-normal)
-        rnd_normal = torch.randn([imgs.shape[0]], device=imgs.device)
-        sigmas = (params['sigma_data'] ** 2 + (rnd_normal * params['P_std'] + params['P_mean']).exp() ** 2).sqrt()
+        sigmas = shared_sigmas[torch.randint(0, num_steps, (imgs.shape[0],))]  # [B]
 
         # 노이즈 추가
         noise = torch.randn_like(imgs)
@@ -160,8 +173,8 @@ for epoch in range(1, params['epochs'] + 1):
         target = imgs
         l1 = (denoised - target).abs().mean()
         l2 = torch.nn.functional.mse_loss(denoised, target)
-        loss = 0.8 * l1 + 0.2 * l2
-
+        # loss = 0.8 * l1 + 0.2 * l2
+        loss = l2
         # 역전파 및 업데이트
         optimizer.zero_grad()
         loss.backward()
@@ -186,17 +199,20 @@ for epoch in range(1, params['epochs'] + 1):
 
             # 입력 noise 생성
             z = torch.randn(len(label_tensor), params['inch'], params['image_size'], params['image_size']).to(device)
+            z = z * shared_sigmas[0].view(1, 1, 1, 1)
 
             # 샘플링 루프: Euler-style
             sigma = torch.full((z.shape[0], 1, 1, 1), params['sigma_max'], device=device)
-            for _ in tqdm(range(50), desc="Sampling"):
+            for _ in tqdm(range(num_steps-1), desc="Sampling"):
+                sigma = shared_sigmas[i].view(1, 1, 1, 1)
+                sigma_next = shared_sigmas[i + 1].view(1, 1, 1, 1)
                 denoised = model(z, sigma, class_labels=class_onehot)
                 d = (z - denoised) / sigma
-                dt = -0.9 * sigma
+                dt = sigma_next - sigma
                 z = z + d * dt
                 sigma = sigma + dt
                 sigma = sigma.clamp(min=params['sigma_min'])
 
-            samples = transback(z)
-            save_image(samples, os.path.join(params['save_path'], f'sample_epoch_{epoch}.png'), nrow=num_per_class)
+            samples = transback(z).clamp(0,1)
+            save_image(samples, os.path.join(params['save_path'], f'sample_epoch_{epoch}.png'), nrow=num_per_class,normalize=True)
             torch.save(model.state_dict(), os.path.join(params['save_path'].replace('result','model'), f'model_epoch_{epoch}.pt'))

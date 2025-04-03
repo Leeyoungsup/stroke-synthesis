@@ -32,7 +32,7 @@ def create_dir(path):
 
 
 class_list = ['Normal', 'Ischemic','Hemorrhagic']
-params = {'image_size': 512,
+params = {'image_size': 256,
           'lr': 2e-5,
           'beta1': 0.5,
           'beta2': 0.999,
