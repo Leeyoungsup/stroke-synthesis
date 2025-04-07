@@ -1,0 +1,1 @@
+python3 ./sample.py --inputfolder ../../../result/med_ddpm/data_mask/mri --exportfolder ../../../result/med_ddpm/mri/ --input_size 128 --depth_size 64 --num_channels 64 --num_res_blocks 1 --batchsize 1 --num_samples 1 --weightfile ../../../model/med_ddpm/mri/

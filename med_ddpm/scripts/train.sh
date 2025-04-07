@@ -1,0 +1,1 @@
+python3 ./train.py --with_condition --inputfolder ../../../data/stroke_mri_nii/masks/ --targetfolder ../../../data/stroke_mri_nii/images/ --batchsize 4 --epochs 100000 --input_size 128 --depth_size 64 --num_channels 64 --num_res_blocks 1 --timesteps 250 --save_and_sample_every 1000 --model_save_path ../../../model/med_ddpm/mri
