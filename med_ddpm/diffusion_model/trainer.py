@@ -378,7 +378,7 @@ class Trainer(object):
     def train(self):
         backwards = partial(loss_backwards, self.fp16)
         start_time = time.time()
-
+        loss_mean=0
         while self.step < self.train_num_steps:
             accumulated_loss = []
             for i in range(self.gradient_accumulate_every):
@@ -391,7 +391,7 @@ class Trainer(object):
                     data = next(self.dl).to(self.device)
                     loss = self.model(data)
                 loss = loss.sum()/self.batch_size
-                print(f'{self.step}: {loss.item()}')
+                loss_mean += loss.item()
                 backwards(loss / self.gradient_accumulate_every, self.opt)
                 accumulated_loss.append(loss.item())
 
@@ -409,7 +409,8 @@ class Trainer(object):
             if self.step != 0 and self.step % self.save_and_sample_every == 0:
                 milestone = self.step // self.save_and_sample_every
                 batches = num_to_groups(1, self.batch_size)
-
+                print(f'{self.step // self.save_and_sample_every}: {loss_mean/self.save_and_sample_every}')
+                loss_mean = 0
                 if self.with_condition:
                     all_images_list = list(map(lambda n: self.ema_model.sample(batch_size=n, condition_tensors=self.ds.sample_conditions(batch_size=n)), batches))
                     all_images = torch.cat(all_images_list, dim=0)
