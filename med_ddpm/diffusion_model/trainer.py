@@ -331,7 +331,7 @@ class Trainer(object):
         self.train_lr = train_lr
         self.train_batch_size = train_batch_size
         self.with_condition = with_condition
-        self.device= device if device else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device= device if device else torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
         self.step = 0
 
         # assert not fp16 or fp16 and APEX_AVAILABLE, 'Apex must be installed in order for mixed precision training to be turned on'
@@ -379,6 +379,7 @@ class Trainer(object):
         backwards = partial(loss_backwards, self.fp16)
         start_time = time.time()
         loss_mean=0
+        pbar = tqdm(total=self.save_and_sample_every, desc="Training", ncols=100)
         while self.step < self.train_num_steps:
             accumulated_loss = []
             for i in range(self.gradient_accumulate_every):
@@ -392,9 +393,10 @@ class Trainer(object):
                     loss = self.model(data)
                 loss = loss.sum()/self.batch_size
                 loss_mean += loss.item()
+                
                 backwards(loss / self.gradient_accumulate_every, self.opt)
                 accumulated_loss.append(loss.item())
-
+            pbar.update(1)
             # Record here
             average_loss = np.mean(accumulated_loss)
             end_time = time.time()
@@ -412,13 +414,13 @@ class Trainer(object):
                 print(f'{self.step // self.save_and_sample_every}: {loss_mean/self.save_and_sample_every}')
                 loss_mean = 0
                 if self.with_condition:
-                    all_images_list = list(map(lambda n: self.ema_model.sample(batch_size=n, condition_tensors=self.ds.sample_conditions(batch_size=n)), batches))
+                    all_images_list = list(map(lambda n: self.ema_model.sample(batch_size=n, condition_tensors=self.ds.sample_conditions(batch_size=n,device=self.device)), batches))
                     all_images = torch.cat(all_images_list, dim=0)
                 else:
                     all_images_list = list(map(lambda n: self.ema_model.sample(batch_size=n), batches))
                     all_images = torch.cat(all_images_list, dim=0)
-
-  
+                pbar.close()
+                pbar = tqdm(total=self.save_and_sample_every, desc="Training", ncols=100)
                 all_images = all_images.transpose(4, 2)
                 sampleImage = all_images[0, 0].cpu().numpy()  # (D, H, W)
                 sampleImage = sampleImage.transpose(0, 1, 2)  # → (D, H, W), 그대로일 수 있음

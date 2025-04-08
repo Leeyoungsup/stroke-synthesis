@@ -24,8 +24,9 @@ class NiftiImageGenerator(Dataset):
 
     def read_image(self, file_path):
         img = nib.load(file_path).get_fdata()
-        img = self.scaler.fit_transform(img.reshape(-1, img.shape[-1])).reshape(img.shape) # 0 -> 1 scale
-        return img
+        img = (img - np.min(img)) / (np.max(img) - np.min(img) + 1e-8)
+        return img  # shape: (D, H, W) ← 그대로 유지
+
 
     def plot_samples(self, n_slice=15, n_row=4):
         samples = [self[index] for index in np.random.randint(0, len(self), n_row*n_row)]
@@ -43,10 +44,10 @@ class NiftiImageGenerator(Dataset):
     def __getitem__(self, index):
         inputfile = self.inputfiles[index]
         img = self.read_image(inputfile)
-        h, w, d= img.shape
+        d,h, w= img.shape
         if h != self.input_size or w != self.input_size or d != self.depth_size:
             img = tio.ScalarImage(inputfile)
-            cop = tio.Resize((self.input_size, self.input_size, self.depth_size))
+            cop = tio.Resize((self.depth_size,self.input_size, self.input_size))
             img = np.asarray(cop(img))[0]
 
         if self.transform is not None:
@@ -130,7 +131,7 @@ class NiftiPairImageGenerator(Dataset):
         else:
             return input_img
 
-    def sample_conditions(self, batch_size: int):
+    def sample_conditions(self, batch_size: int,device='cuda'):
         indexes = np.random.randint(0, len(self), batch_size)
         input_files = [self.pair_files[index][0] for index in indexes]
         input_tensors = []
@@ -141,7 +142,7 @@ class NiftiPairImageGenerator(Dataset):
             if self.transform is not None:
                 input_img = self.transform(input_img).unsqueeze(0)
                 input_tensors.append(input_img)
-        return torch.cat(input_tensors, 0).cuda()
+        return torch.cat(input_tensors, 0).to(device)
 
     def __len__(self):
         return len(self.pair_files)
