@@ -113,7 +113,7 @@ class NiftiPairImageGenerator(Dataset):
         d,h, w = img.shape
         if h != self.input_size or w != self.input_size or d != self.depth_size:
             img = tio.ScalarImage(tensor=img[np.newaxis, ...])
-            cop = tio.Resize((self.input_size, self.input_size, self.depth_size))
+            cop = tio.Resize((self.depth_size,self.input_size, self.input_size))
             img = np.asarray(cop(img))[0]
         return img
 
@@ -165,3 +165,4 @@ class NiftiPairImageGenerator(Dataset):
             return torch.cat([target_img, input_img], 0)
 
         return {'input':input_img, 'target':target_img}
+

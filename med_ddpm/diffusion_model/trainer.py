@@ -283,6 +283,7 @@ class GaussianDiffusion(nn.Module):
 
     def forward(self, x, condition_tensors=None, *args, **kwargs):
         b, c, d, h, w, device, img_size, depth_size = *x.shape, x.device, self.image_size, self.depth_size
+        
         assert h == img_size and w == img_size and d == depth_size, f'Expected dimensions: height={img_size}, width={img_size}, depth={depth_size}. Actual: height={h}, width={w}, depth={d}.'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
         return self.p_losses(x, t, condition_tensors=condition_tensors, *args, **kwargs)

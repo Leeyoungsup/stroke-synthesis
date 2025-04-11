@@ -38,7 +38,7 @@ num_res_blocks = args.num_res_blocks
 num_samples = args.num_samples
 in_channels = args.num_class_labels
 out_channels = 1
-device = "cuda:1" if torch.cuda.is_available() else "cpu"
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
 print("Device: ", device)
 
 mask_list = sorted(glob.glob(f"{inputfolder}/*.nii.gz"))
