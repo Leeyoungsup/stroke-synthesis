@@ -427,7 +427,6 @@ class Trainer(object):
                 sampleImage = sampleImage.transpose(0, 1, 2)  # → (D, H, W), 그대로일 수 있음
                 nifti_img = nib.Nifti1Image(sampleImage, affine=np.eye(4))
                 nib.save(nifti_img, str(self.results_folder / f'sample-{milestone}.nii.gz'))
-                nib.save(nifti_img, str(self.results_folder / f'sample-{milestone}.nii.gz'))
                
                 self.save(milestone)
 
