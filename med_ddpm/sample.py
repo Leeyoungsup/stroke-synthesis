@@ -79,7 +79,7 @@ print("Model Loaded!")
 img_dir = exportfolder
 
 
-max_file_size_kb = 3450
+max_file_size_kb = 3400
 max_retry = 10
 img_dir = exportfolder
 for k, inputfile in enumerate(mask_list):

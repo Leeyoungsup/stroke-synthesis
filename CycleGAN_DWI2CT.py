@@ -52,7 +52,7 @@ params = {
     'ndf': 64,
     'netG': 'unet_custom',
     'netD': 'n_layers',
-    'n_layers_D': 4,
+    'n_layers_D': 3,
     'norm': 'instance',
     'no_dropout': True,
 
@@ -71,14 +71,14 @@ params = {
     'epoch_count': 1,
     'which_epoch': 'latest',
     'continue_train': False,
-    'lr': 2e-4,
+    'lr': 1e-4,
     'beta1': 0.5,
     'lr_policy': 'lambda',
     'lr_decay_iters': 50,
     'no_lsgan': False,
-    'pool_size': 50,
-    'lambda_A': 10.0,
-    'lambda_B': 10.0,
+    'pool_size': 0,
+    'lambda_A': 5.0,
+    'lambda_B': 5.0,
     'lambda_identity': 0.01,
 
     # ✅ 초기화
@@ -156,6 +156,7 @@ opt.lambda_co_B = 1.0
 model.initialize(opt)
 model.setup(opt)
 model.device = device
+# model.load_networks(477)
 from torchinfo import summary
 # Generator A → B
 print("🧠 Generator A → B (netG_A)")
