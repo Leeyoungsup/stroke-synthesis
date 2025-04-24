@@ -8,7 +8,7 @@ import argparse
 import torch
 
 import os 
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # -
 
 parser = argparse.ArgumentParser()
@@ -19,7 +19,7 @@ parser.add_argument('--depth_size', type=int, default=64)
 parser.add_argument('--num_channels', type=int, default=64)
 parser.add_argument('--num_res_blocks', type=int, default=1)
 parser.add_argument('--num_class_labels', type=int, default=3)
-parser.add_argument('--train_lr', type=float, default=2e-7)
+parser.add_argument('--train_lr', type=float, default=2e-5)
 parser.add_argument('--batchsize', type=int, default=1)
 parser.add_argument('--epochs', type=int, default=50000) # epochs parameter specifies the number of training iterations
 parser.add_argument('--timesteps', type=int, default=250)
@@ -91,10 +91,10 @@ diffusion = GaussianDiffusion(
     channels=out_channels
 ).to(device)
 
-if len(resume_weight) > 0:
-    weight = torch.load(resume_weight, map_location=device)
-    diffusion.load_state_dict(weight['ema'])
-    print("Model Loaded!")
+# if len(resume_weight) > 0:
+#     weight = torch.load(resume_weight, map_location=device)
+#     diffusion.load_state_dict(weight['ema'])
+#     print("Model Loaded!")
 # print("Current model depth_size:", diffusion.depth_size)  # 이게 64여야 함
 # print("Weight file shape:", weight['ema']['denoise_fn.0.weight'].shape)  #
 trainer = Trainer(

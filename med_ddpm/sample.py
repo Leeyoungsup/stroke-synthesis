@@ -13,34 +13,20 @@ import os
 import glob
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('-i', '--inputfolder', type=str, default="dataset/whole_head/mask")
-parser.add_argument('-e', '--exportfolder', type=str, default="exports/")
-parser.add_argument('--input_size', type=int, default=128)
-parser.add_argument('--depth_size', type=int, default=64)
-parser.add_argument('--num_channels', type=int, default=64)
-parser.add_argument('--num_res_blocks', type=int, default=1)
-parser.add_argument('--batchsize', type=int, default=1)
-parser.add_argument('--num_samples', type=int, default=1)
-parser.add_argument('--num_class_labels', type=int, default=3)
-parser.add_argument('--timesteps', type=int, default=250)
-parser.add_argument('-w', '--weightfile', type=str, default="model/model_128.pt")
-args = parser.parse_args()
-
-exportfolder = args.exportfolder
-inputfolder = args.inputfolder
-input_size = args.input_size
-depth_size = args.depth_size
-batchsize = args.batchsize
-weightfile = args.weightfile
-num_channels = args.num_channels
-num_res_blocks = args.num_res_blocks
-num_samples = args.num_samples
-in_channels = args.num_class_labels
+exportfolder ='../../../result/generator/Normal_DWI'
+inputfolder = '../../../result/generator/Normal_mask'
+input_size = 128
+depth_size = 64
+batchsize = 10
+weightfile = '../../../model/med_ddpm/dwi_250.pt'
+num_channels = 64
+num_res_blocks = 1
+num_samples = 1
+in_channels =3
 out_channels = 1
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
+device = "cuda:5" if torch.cuda.is_available() else "cpu"
 print("Device: ", device)
-
+i=2
 mask_list = sorted(glob.glob(f"{inputfolder}/*.nii.gz"))
 print(len(mask_list))
 
@@ -82,58 +68,55 @@ diffusion = GaussianDiffusion(
     model,
     image_size = input_size,
     depth_size = depth_size,
-    timesteps = args.timesteps,   # number of steps
+    timesteps = 250,   # number of steps
     loss_type = 'L1', 
     with_condition=True,
 ).to(device)
-diffusion.load_state_dict(torch.load(weightfile)['ema'])
+diffusion.load_state_dict(torch.load(weightfile,map_location=device)['ema'])
 print("Model Loaded!")
 
 # +
-img_dir = exportfolder + "/image"   
-msk_dir = exportfolder + "/mask"   
-os.makedirs(img_dir, exist_ok=True)
-os.makedirs(msk_dir, exist_ok=True)
+img_dir = exportfolder
 
+
+max_file_size_kb = 3450
+max_retry = 10
+img_dir = exportfolder
 for k, inputfile in enumerate(mask_list):
-    left = len(mask_list) - (k+1)
+    left = len(mask_list) - (k + 1)
     print("LEFT: ", left)
+
     ref = nib.load(inputfile)
     msk_name = inputfile.split('/')[-1]
     refImg = ref.get_fdata()
     img = label2masks(refImg)
     img = resize_img_4d(img)
     input_tensor = input_transform(img)
-    batches = num_to_groups(num_samples, batchsize)
-    steps = len(batches)
-    sample_count = 0
-    
-    print(f"All Step: {steps}")
-    counter = 0
-    
-    for i, bsize in enumerate(batches):
-        print(f"Step [{i+1}/{steps}]")
-        condition_tensors, counted_samples = [], []
-        for b in range(bsize):
-            condition_tensors.append(input_tensor)
-            counted_samples.append(sample_count)
-            sample_count += 1
+    condition_tensor = input_tensor.to(device)
 
-        condition_tensors = torch.cat(condition_tensors, 0).to(device)
-        all_images_list = list(map(lambda n: diffusion.sample(batch_size=n, condition_tensors=condition_tensors), [bsize]))
-        all_images = torch.cat(all_images_list, dim=0)
-        all_images = all_images.unsqueeze(1)
-        sampleImages = all_images.cpu()#.numpy()
-        
-        for b, c in enumerate(counted_samples):
-            counter = counter + 1
-            sampleImage = sampleImages[b][0]
-            sampleImage = sampleImage.numpy()
-            sampleImage=sampleImage.reshape(refImg.shape)
-            print(sampleImage.shape)
-            print(refImg.shape)
+    for sample_idx in range(num_samples):
+        saved_count = 0
+        retry = 0
+        file_saved = False
+        generated = diffusion.sample(batch_size=batchsize, condition_tensors=condition_tensor.repeat(batchsize, 1, 1, 1, 1))
+        generated = generated.unsqueeze(1).cpu().numpy()  # (B, 1, D, H, W)
+
+        for b in range(batchsize):
+            sampleImage = generated[b][0]  # shape: (D, H, W)
+            sampleImage = sampleImage.reshape(refImg.shape)
+
+            # 저장 경로 생성
+            out_name = f"{msk_name}"
+            nifti_path = os.path.join(img_dir, out_name)
             nifti_img = nib.Nifti1Image(sampleImage, affine=ref.affine)
-            nib.save(nifti_img, os.path.join(img_dir, f'{counter}_{msk_name}'))
-            nib.save(ref, os.path.join(msk_dir, f'{counter}_{msk_name}'))
-        torch.cuda.empty_cache()
-    print("OK!")
+            nib.save(nifti_img, nifti_path)
+            file_size_kb = os.path.getsize(nifti_path) / 1024
+            if file_size_kb <= max_file_size_kb:
+                file_saved = True
+                saved_count += 1
+                break
+            else:
+                os.remove(nifti_path)  # 너무 크면 삭제하고 재시도
+                continue
+    
+    torch.cuda.empty_cache()
