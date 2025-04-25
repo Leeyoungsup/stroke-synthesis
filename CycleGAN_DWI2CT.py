@@ -38,7 +38,7 @@ params = {
     'data_path': '../../data/registration_data/',     # Train images path
     'val_path': '../../data/registration_data',       # Validation images path
     'img_form': 'nii.gz',                                    # 이미지 포맷
-    'batch_size': 32,
+    'batch_size': 1,
     'patch_size': [64,128, 128],                            # 3D 패치 크기 (H, W, D)
     'input_nc': 1,                                           # 입력 채널 수
     'output_nc': 1,                                          # 출력 채널 수
@@ -66,8 +66,8 @@ params = {
     'device': torch.device("cuda:1" if torch.cuda.is_available() else "cpu"),
     'workers': 4,
 
-    'niter': 2000,                  # 학습 유지 epoch 수
-    'niter_decay': 1000,            # 학습률 감소 epoch 수
+    'niter': 5000,                  # 학습 유지 epoch 수
+    'niter_decay': 0,            # 학습률 감소 epoch 수
     'epoch_count': 1,
     'which_epoch': 'latest',
     'continue_train': False,
@@ -76,7 +76,7 @@ params = {
     'lr_policy': 'lambda',
     'lr_decay_iters': 50,
     'no_lsgan': False,
-    'pool_size': 0,
+    'pool_size': 50,
     'lambda_A': 5.0,
     'lambda_B': 5.0,
     'lambda_identity': 0.01,
@@ -156,7 +156,7 @@ opt.lambda_co_B = 1.0
 model.initialize(opt)
 model.setup(opt)
 model.device = device
-# model.load_networks(477)
+# model.load_networks(2000)
 from torchinfo import summary
 # Generator A → B
 print("🧠 Generator A → B (netG_A)")
