@@ -8,8 +8,6 @@ import numpy as np
 from tqdm import tqdm
 import torch.optim as optim
 from torchvision.utils import save_image
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.distributed import get_rank, init_process_group, destroy_process_group, all_gather, get_world_size
 from torch import Tensor
 from torchvision import transforms
 from torch.utils.data import DataLoader,Dataset
@@ -25,7 +23,7 @@ from torchvision import models
 from matplotlib import pyplot as plt
 import nibabel as nib
 print(f"GPUs used:\t{torch.cuda.device_count()}")
-device = torch.device("cuda",4)
+device = torch.device("cuda",1)
 print(f"Device:\t\t{device}")
 import pytorch_model_summary as tms
 import random
@@ -38,7 +36,7 @@ params={'image_size':256,
         'batch_size':32,
         'epochs':1000,
         'n_classes':None,
-        'data_path':'../../data/SR_dataset/**/',
+        'data_path':'../../data/SR_dataset/SWI/',
         'image_count':10000,
         'inch':3,
         'modch':64,
@@ -73,7 +71,7 @@ class SRDataset(Dataset):
         self.scale = scale
         self.hr_images = hr_imgs
     def __len__(self):
-        return 899
+        return len(self.hr_images)
     
     def trans(self,image):
         if random.random() > 0.5:
@@ -131,7 +129,7 @@ train_img1=train_img[:split]
 test_img=train_img[split:]
 train_dataset=SRDataset(train_img)
 test_dataset=SRDataset(test_img)
-dataloader=DataLoader(train_dataset,batch_size=params['batch_size'],shuffle=True)
+dataloader=DataLoader(train_dataset,batch_size=params['batch_size'],shuffle=True,drop_last=True)
 test_dataloader=DataLoader(test_dataset,batch_size=params['batch_size'],shuffle=True)
 
 
@@ -240,8 +238,8 @@ for epc in range(params['epochs']):
         axs[2].axis('off')
 
         plt.tight_layout()
-        plt.savefig(f'../../result/ESRGAN/All/{epc+1}_SR.png', dpi=300)
+        plt.savefig(f'../../result/ESRGAN/SWI/{epc+1}_SR.png', dpi=600)
         plt.close()
 
-        torch.save(model.state_dict(), f'../../model/ESRGAN/All/ckpt_{epc+1}_checkpoint.pt')
+        torch.save(model.state_dict(), f'../../model/ESRGAN/SWI/ckpt_{epc+1}_checkpoint.pt')
     torch.cuda.empty_cache()
