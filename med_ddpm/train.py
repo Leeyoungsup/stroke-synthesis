@@ -91,10 +91,10 @@ diffusion = GaussianDiffusion(
     channels=out_channels
 ).to(device)
 
-# if len(resume_weight) > 0:
-#     weight = torch.load(resume_weight, map_location=device)
-#     diffusion.load_state_dict(weight['ema'])
-#     print("Model Loaded!")
+if len(resume_weight) > 0:
+    weight = torch.load(resume_weight, map_location=device)
+    diffusion.load_state_dict(weight['ema'])
+    print("Model Loaded!")
 # print("Current model depth_size:", diffusion.depth_size)  # 이게 64여야 함
 # print("Weight file shape:", weight['ema']['denoise_fn.0.weight'].shape)  #
 trainer = Trainer(
