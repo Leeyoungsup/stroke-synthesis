@@ -30,7 +30,7 @@ import random
 
 
 params={'image_size':256,
-        'lr':2e-5,
+        'lr':1e-4,
         'beta1':0.5,
         'beta2':0.999,
         'batch_size':32,
@@ -181,7 +181,7 @@ class CombinedLoss(nn.Module):
 model = RealESRGAN(device, scale=2).model.to(device)
 criterion =CombinedLoss(device, vgg_weight=0.2, l1_weight=1.0, adv_weight=0.1)
 optimizer = optim.Adam(model.parameters(), lr=params['lr'], betas=(params['beta1'], params['beta2']))
-
+model.load_state_dict(torch.load('../../model/ESRGAN/SWI/ckpt_762_checkpoint.pt',map_location=device))
 topilimage = torchvision.transforms.ToPILImage()
 scaler = torch.cuda.amp.GradScaler()
 for epc in range(params['epochs']):

@@ -29,7 +29,7 @@ from cyclegan_3d.networks3D import define_G, define_D
 from torch.utils.data import Dataset, DataLoader
 from torchinfo import summary
 # 디바이스 설정
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
 
 
 
@@ -50,7 +50,7 @@ params = {
     # ✅ 모델 구조 설정
     'ngf': 64,
     'ndf': 64,
-    'netG': 'unet_custom',
+    'netG': 'Dynet',
     'netD': 'n_layers',
     'n_layers_D': 3,
     'norm': 'instance',
@@ -62,8 +62,8 @@ params = {
     'direction': 'AtoB',
     'which_direction': 'AtoB',
     'phase': 'train',
-    'gpu_ids': [1],
-    'device': torch.device("cuda:1" if torch.cuda.is_available() else "cpu"),
+    'gpu_ids': [5],
+    'device': torch.device("cuda:5" if torch.cuda.is_available() else "cpu"),
     'workers': 4,
 
     'niter': 5000,                  # 학습 유지 epoch 수
@@ -111,8 +111,8 @@ class Preloaded3DDataset(Dataset):
             vol_B = nib.load(b_path).get_fdata()
 
             # To Tensor: (1, D, H, W)
-            tensor_A = torch.from_numpy(vol_A).unsqueeze(0).float() - 1.0
-            tensor_B = torch.from_numpy(vol_B).unsqueeze(0).float() - 1.0
+            tensor_A = torch.from_numpy(vol_A).unsqueeze(0).float()-1.
+            tensor_B = torch.from_numpy(vol_B).unsqueeze(0).float()-1.
 
             # Resize to (1, D, H, W) → (1, 64, 128, 128)
             tensor_A = F.interpolate(tensor_A.unsqueeze(0), size=input_size, mode='nearest').squeeze(0)
@@ -156,7 +156,7 @@ opt.lambda_co_B = 1.0
 model.initialize(opt)
 model.setup(opt)
 model.device = device
-# model.load_networks(45)
+model.load_networks(513)
 from torchinfo import summary
 # Generator A → B
 print("🧠 Generator A → B (netG_A)")

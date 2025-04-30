@@ -24,10 +24,10 @@ num_res_blocks = 1
 num_samples = 1
 in_channels =3
 out_channels = 1
-device = "cuda:5" if torch.cuda.is_available() else "cpu"
+device = "cuda:3" if torch.cuda.is_available() else "cpu"
 print("Device: ", device)
 i=2
-mask_list = sorted(glob.glob(f"{inputfolder}/*.nii.gz"))
+mask_list = sorted(glob.glob(f"{inputfolder}/*.nii.gz"))[2413:3623]
 print(len(mask_list))
 
 
