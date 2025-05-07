@@ -66,8 +66,8 @@ params = {
     'device': torch.device("cuda:5" if torch.cuda.is_available() else "cpu"),
     'workers': 4,
 
-    'niter': 5000,                  # 학습 유지 epoch 수
-    'niter_decay': 500,            # 학습률 감소 epoch 수
+    'niter': 200,                  # 학습 유지 epoch 수
+    'niter_decay': 100,            # 학습률 감소 epoch 수
     'epoch_count': 1,
     'which_epoch': 'latest',
     'continue_train': False,
@@ -76,10 +76,10 @@ params = {
     'lr_policy': 'lambda',
     'lr_decay_iters': 50,
     'no_lsgan': False,
-    'pool_size': 0,
-    'lambda_A': 10.0,
-    'lambda_B': 10.0,
-    'lambda_identity': 0.,
+    'pool_size': 50,
+    'lambda_A': 2.5,
+    'lambda_B': 2.5,
+    'lambda_identity': 0.5,
 
     # ✅ 초기화
     'init_type': 'normal',
@@ -124,6 +124,7 @@ class Preloaded3DDataset(Dataset):
         print(f"✅ Loaded {len(self.data_A)} volumes.")
 
     def __getitem__(self, index):
+        # rand_index = random.randint(0, len(self.data_A) - 1)
         return {
             'A': self.data_A[index],
             'B': self.data_B[index]
@@ -132,8 +133,8 @@ class Preloaded3DDataset(Dataset):
     def __len__(self):
         return len(self.data_A)
     
-data_a_list = sorted(glob(os.path.join(params['data_path'], 'registration_DWI', '*.' + params['img_form'])))
-data_b_list = [f.replace('registration_DWI', 'CT') for f in data_a_list]
+data_a_list = sorted(glob(os.path.join(params['data_path'], 'DWI/', '*.' + params['img_form'])))
+data_b_list = [f.replace('DWI/', 'CT/') for f in data_a_list]
 train_dataset = Preloaded3DDataset(data_a_list, data_b_list, input_size=(params['patch_size']))
 
 # DataLoader 설정
@@ -156,7 +157,7 @@ opt.lambda_co_B = 1.0
 model.initialize(opt)
 model.setup(opt)
 model.device = device
-model.load_networks(513)
+# model.load_networks(290)
 from torchinfo import summary
 # Generator A → B
 print("🧠 Generator A → B (netG_A)")
@@ -224,14 +225,15 @@ fake_A_pool = ImagePool(opt.pool_size)
 fake_B_pool = ImagePool(opt.pool_size)
 
 # 손실 기록 리스트 초기화
-D_A_losses = []
-D_B_losses = []
-G_losses = []
-cycle_losses = []
-idt_losses = []
+
 # 에폭 반복
 for epoch in range(opt.epoch_count, opt.niter + opt.niter_decay + 1):
     # 데이터 로더에서 배치 반복
+    D_losses = []
+
+    G_losses = []
+    cycle_losses = []
+    idt_losses = []
     with tqdm(train_loader, dynamic_ncols=True) as tqdmDataLoader:
         model.netG_A.train()
         model.netG_B.train()
@@ -246,17 +248,19 @@ for epoch in range(opt.epoch_count, opt.niter + opt.niter_decay + 1):
             model.optimize_parameters()
 
             # 손실 값 기록
-            D_A_losses.append(model.loss_D_A.item())
-            D_B_losses.append(model.loss_D_B.item())
+
+            D_losses.append((model.loss_D_B+model.loss_D_A).item())
             G_losses.append((model.loss_G_A + model.loss_G_B).item())
             cycle_losses.append((model.loss_cycle_A + model.loss_cycle_B).item())
+            idt_losses.append((model.loss_idt_A + model.loss_idt_B).item())
             tqdmDataLoader.set_postfix(
                 ordered_dict={
                     "epoch": f'Epoch {epoch}/{opt.niter + opt.niter_decay}',
-                    "D_A Loss: ": f'{np.mean(D_A_losses):.4f}',
-                    "D_B Loss: ":f'{np.mean(D_B_losses):.4f}',
+                    "D Loss: ": f'{np.mean(D_losses):.4f}',
                     "G Loss: ":f'{np.mean(G_losses):.4f}',
-                    "Cycle Loss": f'{np.mean(cycle_losses):.4f}'
+                    "G-D Loss: ":f'{(np.mean(G_losses)-np.mean(D_losses)):.4f}',
+                    "Cycle Loss": f'{np.mean(cycle_losses):.4f}',
+                    "Idt Loss": f'{np.mean(idt_losses):.4f}',
                 }
             )
     save_volume_sample(real_A, real_B, model, epoch)

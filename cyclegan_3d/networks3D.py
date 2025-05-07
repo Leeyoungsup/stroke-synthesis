@@ -349,25 +349,31 @@ def Dynet():
         strides.append(stride)
     strides.insert(0, len(spacings) * [1])
     kernels.append(len(spacings) * [3])
+    
+    strides=[[1, 1, 1], [2, 2, 2], [2, 2, 2], [2, 2, 2]]
 
-    net = monai.networks.nets.DynUNet(
+    kernels=[[3, 3, 3], [3, 3, 3], [3, 3, 3], [3, 3, 3]]
+    net1 = monai.networks.nets.DynUNet(
         spatial_dims=3,
         in_channels=1,
         out_channels=1,
         kernel_size=kernels,
         strides=strides,
         upsample_kernel_size=strides[1:],
-        res_block=True,
+        res_block=True
+    )
+    net = nn.Sequential(
+    net1,
+    nn.Tanh()
     )
 
-    net.add_module("activation", torch.nn.Tanh())
 
     return net
 
 
 # Defines the PatchGAN discriminator with the specified arguments.
 class NLayerDiscriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm3d, use_sigmoid=False):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm3d, use_sigmoid=False, dropout_prob=0.2):
         super(NLayerDiscriminator, self).__init__()
         if type(norm_layer) == functools.partial:
             use_bias = norm_layer.func == nn.InstanceNorm3d
@@ -378,7 +384,8 @@ class NLayerDiscriminator(nn.Module):
         padw = 1
         sequence = [
             nn.Conv3d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw),
-            nn.LeakyReLU(0.2, True)
+            nn.LeakyReLU(0.2, True),
+            nn.Dropout3d(p=dropout_prob)  # ✅ Dropout 추가
         ]
 
         nf_mult = 1
@@ -390,7 +397,8 @@ class NLayerDiscriminator(nn.Module):
                 nn.Conv3d(ndf * nf_mult_prev, ndf * nf_mult,
                           kernel_size=kw, stride=2, padding=padw, bias=use_bias),
                 norm_layer(ndf * nf_mult),
-                nn.LeakyReLU(0.2, True)
+                nn.LeakyReLU(0.2, True),
+                nn.Dropout3d(p=dropout_prob)  # ✅ Dropout 추가
             ]
 
         nf_mult_prev = nf_mult
@@ -399,7 +407,8 @@ class NLayerDiscriminator(nn.Module):
             nn.Conv3d(ndf * nf_mult_prev, ndf * nf_mult,
                       kernel_size=kw, stride=1, padding=padw, bias=use_bias),
             norm_layer(ndf * nf_mult),
-            nn.LeakyReLU(0.2, True)
+            nn.LeakyReLU(0.2, True),
+            nn.Dropout3d(p=dropout_prob)  # ✅ Dropout 추가
         ]
 
         sequence += [nn.Conv3d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
