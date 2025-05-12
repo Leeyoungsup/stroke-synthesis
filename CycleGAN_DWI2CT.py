@@ -66,7 +66,7 @@ params = {
     'device': torch.device("cuda:5" if torch.cuda.is_available() else "cpu"),
     'workers': 4,
 
-    'niter': 200,                  # 학습 유지 epoch 수
+    'niter': 1000,                  # 학습 유지 epoch 수
     'niter_decay': 100,            # 학습률 감소 epoch 수
     'epoch_count': 1,
     'which_epoch': 'latest',
@@ -77,8 +77,8 @@ params = {
     'lr_decay_iters': 50,
     'no_lsgan': False,
     'pool_size': 50,
-    'lambda_A': 2.5,
-    'lambda_B': 2.5,
+    'lambda_A': 10.0,
+    'lambda_B': 10.0,
     'lambda_identity': 0.5,
 
     # ✅ 초기화
@@ -152,8 +152,8 @@ from types import SimpleNamespace
 opt = SimpleNamespace(**params)
 # 3. 모델 구조 초기화
 opt.which_direction = opt.direction
-opt.lambda_co_A = 1.0
-opt.lambda_co_B = 1.0
+opt.lambda_co_A = 2.0
+opt.lambda_co_B = 2.0
 model.initialize(opt)
 model.setup(opt)
 model.device = device
