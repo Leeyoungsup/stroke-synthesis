@@ -77,9 +77,9 @@ params = {
     'lr_decay_iters': 50,
     'no_lsgan': False,
     'pool_size': 50,
-    'lambda_A': 10.0,
-    'lambda_B': 10.0,
-    'lambda_identity': 0.5,
+    'lambda_A': 5.0,
+    'lambda_B': 5.0,
+    'lambda_identity': 0.0,
 
     # ✅ 초기화
     'init_type': 'normal',
@@ -252,7 +252,7 @@ for epoch in range(opt.epoch_count, opt.niter + opt.niter_decay + 1):
             D_losses.append((model.loss_D_B+model.loss_D_A).item())
             G_losses.append((model.loss_G_A + model.loss_G_B).item())
             cycle_losses.append((model.loss_cycle_A + model.loss_cycle_B).item())
-            idt_losses.append((model.loss_idt_A + model.loss_idt_B).item())
+            # idt_losses.append((model.loss_idt_A + model.loss_idt_B).item())
             tqdmDataLoader.set_postfix(
                 ordered_dict={
                     "epoch": f'Epoch {epoch}/{opt.niter + opt.niter_decay}',
@@ -260,7 +260,7 @@ for epoch in range(opt.epoch_count, opt.niter + opt.niter_decay + 1):
                     "G Loss: ":f'{np.mean(G_losses):.4f}',
                     "G-D Loss: ":f'{(np.mean(G_losses)-np.mean(D_losses)):.4f}',
                     "Cycle Loss": f'{np.mean(cycle_losses):.4f}',
-                    "Idt Loss": f'{np.mean(idt_losses):.4f}',
+                    # "Idt Loss": f'{np.mean(idt_losses):.4f}',
                 }
             )
     save_volume_sample(real_A, real_B, model, epoch)
