@@ -50,7 +50,7 @@ params = {
     # ✅ 모델 구조 설정
     'ngf': 64,
     'ndf': 64,
-    'netG': 'Dynet',
+    'netG': 'resnet_6blocks',
     'netD': 'n_layers',
     'n_layers_D': 3,
     'norm': 'instance',
