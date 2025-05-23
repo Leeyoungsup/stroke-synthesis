@@ -52,7 +52,7 @@ transform = Compose([
 input_transform = Compose([
     Lambda(lambda t: torch.tensor(t).float()),
     Lambda(lambda t: (t * 2) - 1),
-    Lambda(lambda t: t.unsqueeze(0)),
+    Lambda(lambda t: t.permute(3, 0, 1, 2)),
 ])
 
 if with_condition:
