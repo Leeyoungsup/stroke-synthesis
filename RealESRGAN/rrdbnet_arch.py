@@ -118,4 +118,5 @@ class RRDBNet(nn.Module):
         if self.scale == 8:
             feat = self.lrelu(self.conv_up3(F.interpolate(feat, scale_factor=2, mode='nearest')))
         out = self.conv_last(self.lrelu(self.conv_hr(feat)))
+        
         return out

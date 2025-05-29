@@ -23,20 +23,20 @@ from torchvision import models
 from matplotlib import pyplot as plt
 import nibabel as nib
 print(f"GPUs used:\t{torch.cuda.device_count()}")
-device = torch.device("cuda",1)
+device = torch.device("cuda",4)
 print(f"Device:\t\t{device}")
 import pytorch_model_summary as tms
 import random
 
 
 params={'image_size':256,
-        'lr':1e-4,
+        'lr':2e-4,
         'beta1':0.5,
         'beta2':0.999,
         'batch_size':32,
         'epochs':1000,
         'n_classes':None,
-        'data_path':'../../data/SR_dataset/SWI/',
+        'data_path':'../../data/SR_dataset/CT/',
         'image_count':10000,
         'inch':3,
         'modch':64,
@@ -181,7 +181,7 @@ class CombinedLoss(nn.Module):
 model = RealESRGAN(device, scale=2).model.to(device)
 criterion =CombinedLoss(device, vgg_weight=0.2, l1_weight=1.0, adv_weight=0.1)
 optimizer = optim.Adam(model.parameters(), lr=params['lr'], betas=(params['beta1'], params['beta2']))
-model.load_state_dict(torch.load('../../model/ESRGAN/SWI/ckpt_762_checkpoint.pt',map_location=device))
+model.load_state_dict(torch.load('../../model/ESRGAN/CT/ckpt_1000_checkpoint.pt',map_location=device))
 topilimage = torchvision.transforms.ToPILImage()
 scaler = torch.cuda.amp.GradScaler()
 for epc in range(params['epochs']):
@@ -193,7 +193,8 @@ for epc in range(params['epochs']):
             ir= lr_image.to(device)
             hr= hr_image.to(device)
             optimizer.zero_grad(set_to_none=True)
-            loss=criterion(model(ir), hr)
+            hr_fake= F.sigmoid(model(ir))
+            loss=criterion(hr_fake, hr)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
@@ -216,7 +217,7 @@ for epc in range(params['epochs']):
         hr_sample = hr_sample.to(device)
 
         # 모델 추론
-        sr_sample = model(lr_sample)
+        sr_sample = F.sigmoid(model(lr_sample))
 
         # 첫 번째 샘플만 PIL로 변환해서 시각화
         def to_numpy_img(tensor):
@@ -238,8 +239,8 @@ for epc in range(params['epochs']):
         axs[2].axis('off')
 
         plt.tight_layout()
-        plt.savefig(f'../../result/ESRGAN/SWI/{epc+1}_SR.png', dpi=600)
+        plt.savefig(f'../../result/ESRGAN/CT/{epc+1}_SR.png', dpi=600)
         plt.close()
 
-        torch.save(model.state_dict(), f'../../model/ESRGAN/SWI/ckpt_{epc+1}_checkpoint.pt')
+        torch.save(model.state_dict(), f'../../model/ESRGAN/CT/ckpt_{epc+1}_checkpoint.pt')
     torch.cuda.empty_cache()
